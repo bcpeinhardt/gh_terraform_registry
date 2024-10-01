@@ -6,6 +6,8 @@
 
 import dot_env
 import dot_env/env
+import gh_terraform_registry/cache
+import gh_terraform_registry/gh_client
 import gh_terraform_registry/router
 import gleam/erlang/process
 import mist
@@ -13,21 +15,31 @@ import wisp
 import wisp/wisp_mist
 
 pub fn main() {
+  // Configure Logging
   wisp.configure_logger()
+  wisp.set_logger_level(wisp.DebugLevel)
+  wisp.log_debug("Logger configured")
+
+  // Setup secret key
   let secret_key_base = wisp.random_string(64)
 
+  // Load environment variables
   dot_env.load_default()
-  let assert Ok(gh_api_key) = env.get_string("GH_ACCESS_TOKEN")
-  let assert Ok(gh_modules_repo) = env.get_string("GH_MODULES_REPO")
-  let assert Ok(gh_owner) = env.get_string("GH_OWNER")
+  let assert Ok(token) = env.get_string("GH_ACCESS_TOKEN")
+  let assert Ok(modules_repo) = env.get_string("GH_MODULES_REPO")
+  let assert Ok(owner) = env.get_string("GH_OWNER")
+  let assert Ok(refetch_period_minutes) =
+    env.get_int("CACHE_REFETCH_PERIOD_MINUTES")
 
+  // Setup our github client and gh info cache
+  let gh_client = gh_client.new(token:, owner:, modules_repo:)
+  let assert Ok(cache) = cache.new()
+  let assert Ok(Nil) = cache.populate_module_version(cache, gh_client, refetch_period_minutes)
+
+  // Run the server
   let assert Ok(_) =
     wisp_mist.handler(
-      router.handle_request(_, router.Context(
-        gh_api_key:,
-        gh_owner:,
-        gh_modules_repo:,
-      )),
+      router.handle_request(_, router.Context(gh_client:, cache:)),
       secret_key_base,
     )
     |> mist.new
