@@ -2,12 +2,20 @@ import gh_terraform_registry/cache
 import gh_terraform_registry/gh_client
 import gh_terraform_registry/web
 import gleam/http.{Get}
+import gleam/io
 import gleam/json
+import gleam/list
+import gleam/pair
+import gleam/result
 import gleam/string
 import wisp.{type Request, type Response}
 
 pub type Context {
-  Context(gh_client: gh_client.GithubClient, cache: cache.Cache)
+  Context(
+    gh_client: gh_client.GithubClient,
+    versions_cache: cache.Cache(List(String)),
+    file_cache: cache.Cache(List(gh_client.GithubFile)),
+  )
 }
 
 pub fn handle_request(req: Request, ctx: Context) -> Response {
@@ -16,6 +24,8 @@ pub fn handle_request(req: Request, ctx: Context) -> Response {
   case wisp.path_segments(req) {
     // The remote service discovery endpoint
     [".well-known", "terraform.json"] -> remote_service_discovery()
+
+    ["api", "modules", name] -> legacy_module_download(req, ctx, name)
 
     // Everything else should be namespaced under /api/modules/v1 to 
     // mimic the existing version (in case someone built custom workflows)
@@ -36,16 +46,31 @@ pub fn handle_request(req: Request, ctx: Context) -> Response {
   }
 }
 
-fn download_module(req: Request, name: String, version: String) {
+fn legacy_module_download(req: Request, ctx: Context, name: String) {
+  use <- wisp.require_method(req, http.Get)
+  let query_params = wisp.get_query(req)
+  let branch =
+    list.find(query_params, fn(qp) { pair.first(qp) == "ref" })
+    |> result.map(pair.second)
+    |> result.unwrap(or: "main")
+  let files = cache.get_module_contents(ctx.file_cache, name)
+
+  wisp.ok()
+}
+
+fn download_module(req: Request, name: String, version: String) -> Response {
   use <- wisp.require_method(req, http.Get)
 
   let version = case string.starts_with(version, "v") {
-    True -> version 
+    True -> version
     False -> "v" <> version
   }
 
   wisp.no_content()
-  |> wisp.set_header("X-Terraform-Get", "/api/modules/" <> name <> "?archive=tar.gz&ref=" <> version)
+  |> wisp.set_header(
+    "X-Terraform-Get",
+    "/api/modules/" <> name <> "?archive=tar.gz&ref=" <> version,
+  )
 }
 
 fn remote_service_discovery() {
@@ -62,7 +87,7 @@ fn module_versions(req: Request, ctx: Context, name: String) -> Response {
   use <- wisp.require_method(req, Get)
 
   let res = {
-    let tags = cache.get_modules(ctx.cache)
+    let tags = cache.get_module_versions(ctx.versions_cache)
 
     Ok(
       json.object([

@@ -33,13 +33,30 @@ pub fn main() {
 
   // Setup our github client and gh info cache
   let gh_client = gh_client.new(token:, owner:, modules_repo:)
-  let assert Ok(cache) = cache.new()
-  let assert Ok(Nil) = cache.populate_module_version(cache, gh_client, refetch_period_minutes)
+  let assert Ok(versions_cache) = cache.new("Versions Cache")
+  let assert Ok(file_cache) = cache.new("Files Cache")
+  let assert Ok(Nil) =
+    cache.populate_module_version(
+      versions_cache,
+      gh_client,
+      refetch_period_minutes,
+    )
+  let assert Ok(Nil) =
+    cache.populate_module_contents(
+      file_cache,
+      gh_client,
+      refetch_period_minutes,
+      "code-server",
+    )
 
   // Run the server
   let assert Ok(_) =
     wisp_mist.handler(
-      router.handle_request(_, router.Context(gh_client:, cache:)),
+      router.handle_request(_, router.Context(
+        gh_client:,
+        versions_cache:,
+        file_cache:,
+      )),
       secret_key_base,
     )
     |> mist.new
