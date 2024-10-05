@@ -47,6 +47,7 @@ pub fn main() {
       gh_client,
       refetch_period_minutes,
       "code-server",
+      "main"
     )
 
   // Run the server

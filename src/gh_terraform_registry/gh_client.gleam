@@ -3,6 +3,7 @@ import gleam/dynamic
 import gleam/hackney
 import gleam/http
 import gleam/http/request.{type Request}
+import gleam/http/response
 import gleam/json
 import gleam/list
 import gleam/result
@@ -38,7 +39,7 @@ fn get(
 }
 
 pub type GithubError {
-  GithubError(message: String, documentation_url: String, status: Int)
+  GithubError(message: String, documentation_url: String, status: String)
 }
 
 fn github_error_decoder() {
@@ -46,7 +47,7 @@ fn github_error_decoder() {
     GithubError,
     dynamic.field("message", of: dynamic.string),
     dynamic.field("documentation_url", of: dynamic.string),
-    dynamic.field("status", of: dynamic.int),
+    dynamic.field("status", of: dynamic.string),
   )
 }
 
@@ -103,10 +104,11 @@ pub fn module_repo_tags(
 pub fn module_contents(
   gh_client: GithubClient,
   dir: String,
+  branch: String,
 ) -> Result(List(GithubFile), error.Error) {
   wisp.log_debug("updating module contents")
 
-  let slug = "/repos/" <> gh_client.owner <> "/modules/contents/" <> dir
+  let slug = "/repos/" <> gh_client.owner <> "/modules/contents/" <> dir <> "?ref=" <> branch
 
   use req <- result.try(
     get(gh_client, slug:)
@@ -190,4 +192,26 @@ fn github_link_object_decoder() {
   use git <- toy.field("git", toy.string)
   use html <- toy.field("html", toy.string)
   toy.decoded(GithubLinkObject(self:, git:, html:))
+}
+
+// -------------------------- Basic Authenticated Request ----------------------
+
+pub fn basic(
+  gh_client: GithubClient,
+  endpoint: String,
+) -> Result(response.Response(String), error.Error) {
+  use req <- result.try(
+    request.to(endpoint)
+    |> result.replace_error(error.FailedToCreateRequest(endpoint)),
+  )
+  req
+  |> request.set_method(http.Get)
+  |> request.set_header("Authorization", "Bearer " <> gh_client.token)
+  |> request.set_header("X-GitHub-Api-Version", "2022-11-28")
+
+  use res <- result.try(
+    hackney.send(req) |> result.map_error(error.HackneyError),
+  )
+
+  Ok(res)
 }

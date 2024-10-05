@@ -1,3 +1,5 @@
+import gh_terraform_registry/tar
+import gh_terraform_registry/error
 import gh_terraform_registry/cache
 import gh_terraform_registry/gh_client
 import gh_terraform_registry/web
@@ -53,9 +55,29 @@ fn legacy_module_download(req: Request, ctx: Context, name: String) {
     list.find(query_params, fn(qp) { pair.first(qp) == "ref" })
     |> result.map(pair.second)
     |> result.unwrap(or: "main")
-  let files = cache.get_module_contents(ctx.file_cache, name)
+  let files =
+    cache.get_module_contents(ctx.file_cache, name)
+    |> list.filter(fn(file) { file.type_ == "file" })
+    |> list.try_map(fn(file) {
+      // Get the file from the download url
+      use content <- result.try(gh_client.basic(ctx.gh_client, file.download_url))
+      case content.status {
+        200 -> Ok(#(file.name, content.body))
+        _ -> Error(error.GithubError("Failed to fetch file: " <> file.name))
+      }
+    })
 
-  wisp.ok()
+  case files {
+    Error(e) -> wisp.internal_server_error()
+    Ok(files) -> {
+      // Pack the files into a tarfile binary
+      let res = {
+        use tarfile <- result.try(tar.pack_compressed_tar(files))
+        todo
+      }
+      wisp.ok()
+    }
+  }
 }
 
 fn download_module(req: Request, name: String, version: String) -> Response {

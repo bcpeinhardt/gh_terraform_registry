@@ -71,11 +71,12 @@ pub fn populate_module_contents(
   gh_client gh_client: GithubClient,
   refetch_period_minutes refetch_period_minutes: Int,
   dir dir: String,
+  branch branch: String
 ) {
   let timeout_ms = refetch_period_minutes * 1000 * 60
-  use Nil <- result.try(update_module_contents(cache, gh_client, dir))
+  use Nil <- result.try(update_module_contents(cache, gh_client, dir, branch))
   repeatedly.call(timeout_ms, Nil, fn(_, _) {
-    update_module_contents(cache, gh_client, dir)
+    update_module_contents(cache, gh_client, dir, branch)
   })
   Ok(Nil)
 }
@@ -84,8 +85,9 @@ pub fn update_module_contents(
   cache: Cache(List(gh_client.GithubFile)),
   gh_client: GithubClient,
   dir: String,
+  branch: String
 ) {
-  case gh_client.module_contents(gh_client, dir) {
+  case gh_client.module_contents(gh_client, dir, branch) {
     Error(e) -> {
       wisp.log_error(
         "There was an error updating the module contents for module "
